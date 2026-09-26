@@ -4,6 +4,7 @@ import { RetailerDashboard } from './RetailerDashboard';
 import { EscalationCenter } from './EscalationCenter';
 import { WhatIfSimulator } from './WhatIfSimulator';
 import { AIExecutiveInsights } from './AIExecutiveInsights';
+import { DatabaseViewer } from './DatabaseViewer';
 import { 
   LayoutDashboard, 
   ShieldAlert, 
@@ -18,12 +19,13 @@ import {
   DollarSign,
   Users,
   Flame,
-  Frown
+  Frown,
+  Database
 } from 'lucide-react';
 
 export const RetailerPortal = () => {
   const { escalations, refreshAnalytics, setActiveTab, setActivePersona } = useContext(AppContext);
-  const [adminTab, setAdminTab] = useState('escalations'); // 'escalations', 'dashboard', 'simulation', 'insights'
+  const [adminTab, setAdminTab] = useState('escalations'); // 'escalations', 'dashboard', 'database', 'simulation', 'insights'
 
   const activeEscalations = escalations ? escalations.filter(e => e.escalated) : [];
   const criticalCount = activeEscalations.filter(e => e.riskLevel === 'HIGH' || e.severity === 'Critical').length;
@@ -109,6 +111,18 @@ export const RetailerPortal = () => {
             </button>
 
             <button
+              onClick={() => setAdminTab('database')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+                adminTab === 'database'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-850'
+              }`}
+            >
+              <Database className="w-4 h-4 text-cyan-400" />
+              <span>Database Explorer (SQLite)</span>
+            </button>
+
+            <button
               onClick={() => setAdminTab('simulation')}
               className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
                 adminTab === 'simulation'
@@ -175,6 +189,7 @@ export const RetailerPortal = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {adminTab === 'escalations' && <EscalationCenter />}
         {adminTab === 'dashboard' && <RetailerDashboard />}
+        {adminTab === 'database' && <DatabaseViewer />}
         {adminTab === 'simulation' && <WhatIfSimulator />}
         {adminTab === 'insights' && <AIExecutiveInsights />}
       </div>

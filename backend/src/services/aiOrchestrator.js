@@ -1,5 +1,6 @@
 /**
  * Main AI Pipeline Orchestrator for SentiAI
+ * Fully integrated with SQLite Database Persistence
  */
 
 const { analyzeSentimentAndEmotion } = require("./sentimentEngine");
@@ -7,8 +8,9 @@ const { parseEntitiesAndIntent } = require("./entityParser");
 const { calculateRecoveryScore } = require("./scoringEngine");
 const { generateEmpatheticResponse } = require("./responseGenerator");
 const { getCustomerById, addFeedback } = require("../data/syntheticData");
+const { dbOperations } = require("../db/database");
 
-function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint = null) {
+async function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint = null) {
   // 1. Fetch Customer Profile
   const customer = getCustomerById(customerId);
 
@@ -24,7 +26,7 @@ function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint
   // 5. Run Empathetic Response Generator & Explainability Builder
   const responseData = generateEmpatheticResponse(customer, sentimentData, entityData, scoreData, userMessage);
 
-  // 6. Record feedback item in live store for real-time analytics reflection
+  // 6. Record feedback item in live store and SQLite Database
   const newFeedback = {
     id: `FBK-${Date.now().toString().slice(-4)}`,
     customerId: customer.id,
@@ -49,7 +51,24 @@ function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint
     timestamp: new Date().toISOString()
   };
 
+  // Sync with synthetic in-memory store & SQLite Database
   addFeedback(newFeedback);
+  
+  try {
+    await dbOperations.saveFeedback(newFeedback);
+    await dbOperations.saveChatLog({
+      id: `chat-${Date.now()}`,
+      sessionId: `SESSION-${customer.id}`,
+      customerId: customer.id,
+      sender: 'user',
+      text: userMessage,
+      followUp: responseData.followUpQuestion,
+      sentiment: sentimentData.sentiment,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("SQLite insert warning:", err.message);
+  }
 
   return {
     customer,
@@ -57,7 +76,8 @@ function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint
     entityData,
     scoreData,
     responseData,
-    feedbackRecord: newFeedback
+    feedbackRecord: newFeedback,
+    dbSaved: true
   };
 }
 

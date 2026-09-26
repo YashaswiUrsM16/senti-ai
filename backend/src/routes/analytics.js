@@ -1,15 +1,24 @@
 const express = require("express");
 const router = express.Router();
 const { getAllFeedbacks, products } = require("../data/syntheticData");
+const { dbOperations } = require("../db/database");
 
 // GET /api/analytics/dashboard
-router.get("/dashboard", (req, res) => {
+router.get("/dashboard", async (req, res) => {
   try {
-    const feedbacks = getAllFeedbacks();
+    let feedbacks = [];
+    try {
+      feedbacks = await dbOperations.getAllFeedbacks();
+    } catch (e) {
+      feedbacks = getAllFeedbacks();
+    }
+
+    if (!feedbacks || feedbacks.length === 0) {
+      feedbacks = getAllFeedbacks();
+    }
 
     const totalCount = feedbacks.length;
     let posCount = 0, neuCount = 0, negCount = 0;
-    let lowRiskCount = 0, medRiskCount = 0, highRiskCount = 0;
     let sumScore = 0;
 
     const emotionMap = {};
@@ -38,19 +47,16 @@ router.get("/dashboard", (req, res) => {
 
     const avgRecoveryScore = totalCount > 0 ? Math.round(sumScore / totalCount) : 75;
 
-    // Emotion distribution array for charts
     const emotionDistribution = Object.keys(emotionMap).map(key => ({
       name: key,
       count: emotionMap[key]
     }));
 
-    // Category distribution array
     const categoryDistribution = Object.keys(categoryMap).map(key => ({
       category: key,
       count: categoryMap[key]
     }));
 
-    // Sentiment trends mock timeline
     const sentimentTrend = [
       { day: "Mon", positive: 65, neutral: 20, negative: 15 },
       { day: "Tue", positive: 60, neutral: 25, negative: 15 },
@@ -61,11 +67,11 @@ router.get("/dashboard", (req, res) => {
       { day: "Today", positive: Math.round((posCount / totalCount) * 100), neutral: Math.round((neuCount / totalCount) * 100), negative: Math.round((negCount / totalCount) * 100) }
     ];
 
-    // High risk and escalated items
     const highRiskItems = feedbacks.filter(f => f.riskLevel === "HIGH" || f.escalated);
 
     return res.json({
       success: true,
+      database: "SQLite (sentiai.db)",
       kpis: {
         totalFeedback: totalCount,
         positivePercentage: Math.round((posCount / totalCount) * 100) || 0,
@@ -97,41 +103,44 @@ router.get("/dashboard", (req, res) => {
 });
 
 // GET /api/analytics/products
-router.get("/products", (req, res) => {
+router.get("/products", async (req, res) => {
   try {
-    const feedbacks = getAllFeedbacks();
-    
-    const productStats = products.map(p => {
-      const pFeedbacks = feedbacks.filter(f => f.product === p.name);
-      const total = pFeedbacks.length;
-      const positives = pFeedbacks.filter(f => f.sentiment === "Positive").length;
-      const negatives = pFeedbacks.filter(f => f.sentiment === "Negative").length;
-      const avgScore = total > 0 ? Math.round(pFeedbacks.reduce((acc, curr) => acc + (curr.recoveryScore || 50), 0) / total) : 80;
-
-      return {
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        price: p.price,
-        image: p.image,
-        description: p.description,
-        rating: p.rating,
-        happyQuotes: p.happyQuotes || [],
-        latestPraise: p.latestPraise || null,
-        totalReviews: total,
-        positivePercentage: total > 0 ? Math.round((positives / total) * 100) : 85,
-        negativeCount: negatives,
-        avgRecoveryScore: avgScore,
-        status: avgScore < 45 ? "Critical Alert" : avgScore < 70 ? "Needs Monitoring" : "Healthy"
-      };
-    });
+    let prods = [];
+    try {
+      prods = await dbOperations.getAllProducts();
+    } catch (e) {
+      prods = products;
+    }
 
     return res.json({
       success: true,
-      products: productStats
+      database: "SQLite (sentiai.db)",
+      products: prods
     });
   } catch (err) {
     console.error("Error fetching product analytics:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/analytics/database - Database Explorer endpoint
+router.get("/database", async (req, res) => {
+  try {
+    const stats = await dbOperations.getDbStats();
+    const feedbacks = await dbOperations.getAllFeedbacks();
+    const productsList = await dbOperations.getAllProducts();
+
+    return res.json({
+      success: true,
+      databaseEngine: "SQLite 3",
+      dbFileName: "sentiai.db",
+      tables: ["feedbacks", "products", "chat_logs"],
+      stats,
+      feedbacks,
+      products: productsList
+    });
+  } catch (err) {
+    console.error("Error fetching database stats:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

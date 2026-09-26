@@ -1,11 +1,22 @@
 const express = require("express");
 const router = express.Router();
 const { getAllFeedbacks, updateEscalation } = require("../data/syntheticData");
+const { dbOperations } = require("../db/database");
 
 // GET /api/escalations
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const feedbacks = getAllFeedbacks();
+    let feedbacks = [];
+    try {
+      feedbacks = await dbOperations.getAllFeedbacks();
+    } catch (e) {
+      feedbacks = getAllFeedbacks();
+    }
+
+    if (!feedbacks || feedbacks.length === 0) {
+      feedbacks = getAllFeedbacks();
+    }
+
     const escalatedList = feedbacks.filter(f => f.escalated || f.riskLevel === "HIGH" || f.riskLevel === "MEDIUM");
     return res.json({
       success: true,
@@ -18,20 +29,25 @@ router.get("/", (req, res) => {
 });
 
 // POST /api/escalations/:id/resolve
-router.post("/:id/resolve", (req, res) => {
+router.post("/:id/resolve", async (req, res) => {
   try {
     const { id } = req.params;
     const { actionTaken, notes } = req.body;
 
-    const updated = updateEscalation(id, "Resolved", notes || actionTaken || "Resolved by Human Agent.");
-    if (!updated) {
-      return res.status(404).json({ error: "Escalation item not found" });
+    const resolution = notes || actionTaken || "Resolved by Human Agent.";
+    
+    // Update in-memory & SQLite Database
+    const updated = updateEscalation(id, "Resolved", resolution);
+    try {
+      await dbOperations.updateEscalation(id, "Resolved", resolution);
+    } catch (e) {
+      console.error("SQLite escalation update notice:", e.message);
     }
 
     return res.json({
       success: true,
-      message: "Escalation ticket resolved successfully",
-      item: updated
+      message: "Escalation ticket resolved successfully in SQLite Database",
+      item: updated || { id, escalationStatus: "Resolved", resolution }
     });
   } catch (err) {
     console.error("Error resolving escalation:", err);

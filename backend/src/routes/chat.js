@@ -42,14 +42,14 @@ const presetScenarios = [
 ];
 
 // POST /api/chat/message
-router.post("/message", (req, res) => {
+router.post("/message", async (req, res) => {
   try {
     const { message, customerId, orderHint } = req.body;
     if (!message || message.trim() === "") {
       return res.status(400).json({ error: "Message content is required" });
     }
 
-    const result = processCustomerMessage(message, customerId, orderHint);
+    const result = await processCustomerMessage(message, customerId, orderHint);
     return res.json({
       success: true,
       timestamp: new Date().toISOString(),
