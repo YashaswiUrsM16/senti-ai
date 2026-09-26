@@ -1,0 +1,14 @@
+{
+  "name": "retail-sentiment-agent-suite",
+  "version": "1.0.0",
+  "description": "SentiAI - Intelligent Retail Customer Experience & Recovery Agent Platform",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev",
+    "start": "node start.js"
+  },
+  "keywords": ["retail", "sentiment-analysis", "ai-agent", "customer-recovery", "nlp"],
+  "author": "SentiAI Team",
+  "license": "MIT"
+}
