@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
+import { initialProducts, initialFeedbacks, clientAnalyzeSentiment } from '../services/clientEngine';
 
 export const AppContext = createContext();
 
@@ -12,13 +13,13 @@ const INITIAL_MESSAGES = [
 ];
 
 export const AppProvider = ({ children }) => {
-  const [activeTab, setActiveTab] = useState('store'); // 'store', 'chat', 'dashboard', 'analytics', 'escalations', 'simulation', 'insights'
-  const [activePersona, setActivePersona] = useState('customer'); // 'customer' or 'retailer'
+  const [activeTab, setActiveTab] = useState('store');
+  const [activePersona, setActivePersona] = useState('customer');
   const [liveAnalysis, setLiveAnalysis] = useState(null);
   const [scenarios, setScenarios] = useState([]);
+  const [productData, setProductData] = useState(initialProducts);
+  const [escalations, setEscalations] = useState(initialFeedbacks);
   const [dashboardData, setDashboardData] = useState(null);
-  const [productData, setProductData] = useState([]);
-  const [escalations, setEscalations] = useState([]);
   const [insights, setInsights] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
@@ -36,7 +37,6 @@ export const AppProvider = ({ children }) => {
     return INITIAL_MESSAGES;
   });
 
-  // Save chat messages to localStorage whenever they update
   useEffect(() => {
     try {
       localStorage.setItem('sentiai_chat_history', JSON.stringify(chatMessages));
@@ -55,17 +55,53 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Fetch initial scenario list
-  useEffect(() => {
-    fetch('/api/chat/scenarios')
-      .then(res => res.json())
-      .then(data => {
-        if (data.scenarios) setScenarios(data.scenarios);
-      })
-      .catch(err => console.error("Error fetching scenarios:", err));
-  }, []);
+  // Dual-Action Real-Time Feedback Dispatch
+  const processClientFeedback = (feedbackText, analysis) => {
+    const { sentimentData, entityData, scoreData, responseData } = analysis;
+    setLiveAnalysis(analysis);
 
-  // Fetch Dashboard Analytics whenever active tab changes to dashboard or analytics
+    if (sentimentData.sentiment === 'Positive') {
+      setProductData(prev => prev.map(p => {
+        if (p.name.toLowerCase().includes(entityData.product.toLowerCase()) || p.id === "PROD-102") {
+          return {
+            ...p,
+            rating: Math.min(5.0, Number((p.rating + 0.05).toFixed(1))),
+            latestPraise: {
+              customer: "Sarah Jenkins (You)",
+              text: feedbackText,
+              time: "Just now"
+            },
+            happyQuotes: [feedbackText, ...(p.happyQuotes || [])]
+          };
+        }
+        return p;
+      }));
+    } else if (sentimentData.sentiment === 'Negative') {
+      const newEscalation = {
+        id: `FBK-${Date.now().toString().slice(-4)}`,
+        customerId: "CUST-9001",
+        customerName: "Sarah Jenkins",
+        orderId: entityData.orderId || "ORD-8821",
+        product: entityData.product || "UltraSound Wireless Headphones",
+        category: entityData.category || "Delivery",
+        feedback: feedbackText,
+        sentiment: "Negative",
+        sentimentScore: sentimentData.sentimentScore,
+        emotion: sentimentData.primaryEmotion,
+        intensity: sentimentData.intensity,
+        severity: sentimentData.primaryEmotion === "Angry" ? "Critical" : "High",
+        recoveryScore: scoreData.recoveryScore,
+        riskLevel: scoreData.riskLevel,
+        nextBestAction: scoreData.nextBestAction,
+        escalated: true,
+        escalationStatus: "Pending",
+        resolution: "Immediate AI triage active. Awaiting resolution action.",
+        timestamp: new Date().toISOString()
+      };
+      setEscalations(prev => [newEscalation, ...prev]);
+    }
+  };
+
   const refreshAnalytics = () => {
     setLoadingDashboard(true);
     fetch('/api/analytics/dashboard')
@@ -74,31 +110,28 @@ export const AppProvider = ({ children }) => {
         if (data.kpis) setDashboardData(data);
         setLoadingDashboard(false);
       })
-      .catch(err => {
-        console.error("Error fetching dashboard:", err);
-        setLoadingDashboard(false);
-      });
+      .catch(() => setLoadingDashboard(false));
 
     fetch('/api/analytics/products')
       .then(res => res.json())
       .then(data => {
-        if (data.products) setProductData(data.products);
+        if (data.products && data.products.length > 0) setProductData(data.products);
       })
-      .catch(err => console.error("Error fetching products:", err));
+      .catch(() => {});
 
     fetch('/api/escalations')
       .then(res => res.json())
       .then(data => {
-        if (data.escalations) setEscalations(data.escalations);
+        if (data.escalations && data.escalations.length > 0) setEscalations(data.escalations);
       })
-      .catch(err => console.error("Error fetching escalations:", err));
+      .catch(() => {});
 
     fetch('/api/insights/executive')
       .then(res => res.json())
       .then(data => {
         if (data.executiveSummary) setInsights(data);
       })
-      .catch(err => console.error("Error fetching insights:", err));
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -116,13 +149,16 @@ export const AppProvider = ({ children }) => {
       scenarios,
       dashboardData,
       productData,
+      setProductData,
       escalations,
+      setEscalations,
       insights,
       loadingDashboard,
       refreshAnalytics,
       chatMessages,
       setChatMessages,
-      resetChatHistory
+      resetChatHistory,
+      processClientFeedback
     }}>
       {children}
     </AppContext.Provider>

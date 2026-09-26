@@ -29,6 +29,8 @@ import {
   Check
 } from 'lucide-react';
 
+import { clientAnalyzeSentiment } from '../services/clientEngine';
+
 export const CustomerStorefront = () => {
   const { 
     productData, 
@@ -37,7 +39,8 @@ export const CustomerStorefront = () => {
     setActivePersona,
     chatMessages,
     setChatMessages,
-    resetChatHistory
+    resetChatHistory,
+    processClientFeedback
   } = useContext(AppContext);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -78,52 +81,54 @@ export const CustomerStorefront = () => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/chat/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, customerId: 'CUST-9001' })
-      });
+      let analysisData = null;
 
-      const resData = await response.json();
-
-      if (resData.success) {
-        const { responseData, sentimentData, entityData, scoreData } = resData.data;
-
-        // Check if Happy: Display Praise Toast on the storefront!
-        if (sentimentData.sentiment === 'Positive') {
-          setHappyToast({
-            product: entityData.product || "OmniFit Smartwatch",
-            quote: text,
-            customer: "Sarah Jenkins"
-          });
-          // Auto clear toast after 8 seconds
-          setTimeout(() => setHappyToast(null), 8000);
+      try {
+        const response = await fetch('/api/chat/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, customerId: 'CUST-9001' })
+        });
+        if (response.ok) {
+          const resData = await response.json();
+          if (resData.success) analysisData = resData.data;
         }
-
-        // Add Bot message (Empathetic, helpful customer-facing message)
-        const botMsg = {
-          id: `bot-${Date.now()}`,
-          sender: 'bot',
-          text: responseData.botMessage,
-          followUp: responseData.followUpQuestion,
-          sentiment: sentimentData.sentiment,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-
-        setChatMessages(prev => [...prev, botMsg]);
-        refreshAnalytics(); // Refresh product praise & retailer escalations
+      } catch (e) {
+        // Backend not available on standalone static host; proceed to client NLP fallback
       }
+
+      // If backend is not running or returned error, use client-side NLP engine
+      if (!analysisData) {
+        analysisData = clientAnalyzeSentiment(text);
+      }
+
+      const { responseData, sentimentData, entityData } = analysisData;
+
+      // Check if Happy: Display Praise Toast on the storefront!
+      if (sentimentData.sentiment === 'Positive') {
+        setHappyToast({
+          product: entityData.product || "OmniFit Smartwatch",
+          quote: text,
+          customer: "Sarah Jenkins"
+        });
+        setTimeout(() => setHappyToast(null), 8000);
+      }
+
+      // Add Bot message
+      const botMsg = {
+        id: `bot-${Date.now()}`,
+        sender: 'bot',
+        text: responseData.botMessage,
+        followUp: responseData.followUpQuestion,
+        sentiment: sentimentData.sentiment,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setChatMessages(prev => [...prev, botMsg]);
+      processClientFeedback(text, analysisData);
+      refreshAnalytics();
     } catch (err) {
       console.error("Chat error:", err);
-      setChatMessages(prev => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          sender: 'bot',
-          text: "I apologize, but our connection dipped momentarily. Please try again.",
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
     } finally {
       setLoading(false);
     }
