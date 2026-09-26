@@ -1,5 +1,5 @@
-// Client-side NLP & Multi-Emotion Processing Engine for SentiAI
-// Ensures 100% real-time interactive demo on standalone Vercel deployments
+// Client-side Live LLM Gateway (Gemini / OpenAI) + NLP Engine for SentiAI
+// Supports live API keys entered by user, with zero-key fallback
 
 export const initialProducts = [
   { 
@@ -140,8 +140,6 @@ export const initialFeedbacks = [
     emotion: "Frustrated",
     intensity: 88,
     severity: "High",
-    issueType: "Delivery Delay",
-    urgency: "High",
     recoveryScore: 42,
     riskLevel: "HIGH",
     nextBestAction: "Prioritize Shipping & Issue $15 Store Credit",
@@ -163,8 +161,6 @@ export const initialFeedbacks = [
     emotion: "Angry",
     intensity: 95,
     severity: "Critical",
-    issueType: "Damaged Product",
-    urgency: "High",
     recoveryScore: 18,
     riskLevel: "HIGH",
     nextBestAction: "Escalate to Human Agent & Issue Full Refund + VIP Credit",
@@ -186,8 +182,6 @@ export const initialFeedbacks = [
     emotion: "Delighted",
     intensity: 90,
     severity: "Low",
-    issueType: "General Feedback",
-    urgency: "Low",
     recoveryScore: 95,
     riskLevel: "LOW",
     nextBestAction: "Express Gratitude & Offer Loyalty Reward Points",
@@ -197,6 +191,53 @@ export const initialFeedbacks = [
     timestamp: "2026-09-26T09:30:00Z"
   }
 ];
+
+// Client-side Direct LLM API Call for Gemini
+export async function callGeminiDirect(apiKey, text) {
+  const prompt = `Analyze this retail customer chat message and output strict JSON with fields:
+  "sentiment" ("Positive"|"Neutral"|"Negative"), "sentimentScore" (-1.0 to 1.0), "primaryEmotion" ("Angry"|"Frustrated"|"Disappointed"|"Delighted"|"Satisfied"|"Neutral"), "intensity" (0-100), "product" (detected product name or "OmniFit Smartwatch"), "orderId" (e.g. "ORD-8821" or null), "category" ("Delivery"|"Product Quality"|"Payment"|"Refund"|"Damaged Product"|"Customer Service"), "recoveryScore" (0-100), "riskLevel" ("HIGH"|"MEDIUM"|"LOW"), "nextBestAction" (string), "botMessage" (empathetic customer response), "followUpQuestion" (string).
+  Customer Message: "${text}"`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    })
+  });
+
+  if (!res.ok) throw new Error(`Gemini API returned status ${res.status}`);
+  const data = await res.json();
+  const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const clean = textContent.replace(/```json/g, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(clean);
+
+  return {
+    sentimentData: {
+      sentiment: parsed.sentiment || "Neutral",
+      sentimentScore: Number(parsed.sentimentScore) || 0,
+      primaryEmotion: parsed.primaryEmotion || "Neutral",
+      intensity: Number(parsed.intensity) || 75
+    },
+    entityData: {
+      product: parsed.product || "OmniFit Smartwatch Series 5",
+      orderId: parsed.orderId || null,
+      category: parsed.category || "Customer Service"
+    },
+    scoreData: {
+      recoveryScore: Number(parsed.recoveryScore) || 75,
+      riskLevel: parsed.riskLevel || "LOW",
+      nextBestAction: parsed.nextBestAction || "Provide personalized assistance"
+    },
+    responseData: {
+      botMessage: parsed.botMessage,
+      followUpQuestion: parsed.followUpQuestion
+    },
+    aiModel: "Google Gemini 1.5 Flash (Direct API)"
+  };
+}
 
 const emotionKeywords = {
   Angry: ["furious", "angry", "outraged", "terrible", "disaster", "lawsuit", "shattered", "canceling", "cancel my account", "scam", "worst", "unacceptable"],
@@ -260,7 +301,7 @@ export function clientAnalyzeSentiment(text) {
   else if (lower.includes("duvet") || lower.includes("bedding") || lower.includes("silk")) detectedProduct = "Organic Blend Silk Duvet";
   else if (lower.includes("shoes") || lower.includes("running")) detectedProduct = "AeroGlide Running Shoes";
 
-  // Score Calculation (Customer Recovery Score)
+  // Score Calculation
   let recoveryScore = 75;
   let riskLevel = "LOW";
   let nextBestAction = "Provide friendly assistance & product tips";
@@ -290,6 +331,7 @@ export function clientAnalyzeSentiment(text) {
     sentimentData: { sentiment, sentimentScore, primaryEmotion, intensity },
     entityData: { product: detectedProduct, orderId, category: sentiment === "Negative" ? "Delivery" : "Product Quality" },
     scoreData: { recoveryScore, riskLevel, nextBestAction },
-    responseData: { botMessage, followUpQuestion }
+    responseData: { botMessage, followUpQuestion },
+    aiModel: "SentiAI In-House NLP Engine"
   };
 }

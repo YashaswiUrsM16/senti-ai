@@ -29,7 +29,7 @@ import {
   Check
 } from 'lucide-react';
 
-import { clientAnalyzeSentiment } from '../services/clientEngine';
+import { clientAnalyzeSentiment, callGeminiDirect } from '../services/clientEngine';
 
 export const CustomerStorefront = () => {
   const { 
@@ -80,24 +80,42 @@ export const CustomerStorefront = () => {
     if (!textToSend) setInputText('');
     setLoading(true);
 
+    const savedKey = localStorage.getItem('sentiai_api_key') || '';
+    const savedProvider = localStorage.getItem('sentiai_api_provider') || 'gemini';
+
     try {
       let analysisData = null;
 
+      // 1. Try Backend API first
       try {
         const response = await fetch('/api/chat/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, customerId: 'CUST-9001' })
+          body: JSON.stringify({ 
+            message: text, 
+            customerId: 'CUST-9001',
+            apiKey: savedKey,
+            provider: savedProvider
+          })
         });
         if (response.ok) {
           const resData = await response.json();
           if (resData.success) analysisData = resData.data;
         }
       } catch (e) {
-        // Backend not available on standalone static host; proceed to client NLP fallback
+        // Backend not available on standalone static host
       }
 
-      // If backend is not running or returned error, use client-side NLP engine
+      // 2. If backend didn't respond, try Direct Client LLM API if key is present
+      if (!analysisData && savedKey && savedProvider === 'gemini') {
+        try {
+          analysisData = await callGeminiDirect(savedKey, text);
+        } catch (e) {
+          console.warn("Direct Gemini call failed, falling back to local NLP engine:", e);
+        }
+      }
+
+      // 3. Fallback to client-side NLP engine
       if (!analysisData) {
         analysisData = clientAnalyzeSentiment(text);
       }

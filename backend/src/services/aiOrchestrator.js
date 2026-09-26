@@ -1,6 +1,6 @@
 /**
  * Main AI Pipeline Orchestrator for SentiAI
- * Fully integrated with SQLite Database Persistence
+ * Live LLM Gateway (Gemini/OpenAI API Keys) + Fast In-House Engine Fallback + SQLite
  */
 
 const { analyzeSentimentAndEmotion } = require("./sentimentEngine");
@@ -9,39 +9,75 @@ const { calculateRecoveryScore } = require("./scoringEngine");
 const { generateEmpatheticResponse } = require("./responseGenerator");
 const { getCustomerById, addFeedback } = require("../data/syntheticData");
 const { dbOperations } = require("../db/database");
+const { analyzeWithLLM } = require("./llmService");
 
-async function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint = null) {
+async function processCustomerMessage(userMessage, customerId = "CUST-9001", orderHint = null, apiKey = null, provider = null) {
   // 1. Fetch Customer Profile
   const customer = getCustomerById(customerId);
 
-  // 2. Run Sentiment & Multi-Emotion Engine
-  const sentimentData = analyzeSentimentAndEmotion(userMessage);
+  let sentimentData, entityData, scoreData, responseData, modelName = "SentiAI In-House NLP Engine";
 
-  // 3. Run Contextual Entity & Intent Parser
-  const entityData = parseEntitiesAndIntent(userMessage, orderHint);
+  // 2. Try Live LLM API Gateway first if API key is provided or present in .env
+  try {
+    const llmResult = await analyzeWithLLM(userMessage, customer, apiKey, provider);
+    if (llmResult) {
+      sentimentData = {
+        sentiment: llmResult.sentiment || "Neutral",
+        sentimentScore: Number(llmResult.sentimentScore) || 0,
+        primaryEmotion: llmResult.primaryEmotion || "Neutral",
+        intensity: Number(llmResult.intensity) || 75
+      };
 
-  // 4. Run Customer Recovery Score (CRS) & Escalation Risk Matrix
-  const scoreData = calculateRecoveryScore(sentimentData, entityData, customer, userMessage);
+      entityData = {
+        product: llmResult.product || "OmniFit Smartwatch Series 5",
+        orderId: llmResult.orderId || orderHint,
+        issueCategory: llmResult.issueCategory || "Customer Service",
+        severity: llmResult.severity || "Medium",
+        urgency: llmResult.severity === "Critical" || llmResult.severity === "High" ? "High" : "Medium"
+      };
 
-  // 5. Run Empathetic Response Generator & Explainability Builder
-  const responseData = generateEmpatheticResponse(customer, sentimentData, entityData, scoreData, userMessage);
+      scoreData = {
+        recoveryScore: Number(llmResult.recoveryScore) || 50,
+        riskLevel: llmResult.riskLevel || "MEDIUM",
+        nextBestAction: llmResult.nextBestAction || "Review customer inquiry",
+        escalated: Boolean(llmResult.escalated)
+      };
 
-  // 6. Record feedback item in live store and SQLite Database
+      responseData = {
+        botMessage: llmResult.botMessage,
+        followUpQuestion: llmResult.followUpQuestion
+      };
+
+      modelName = llmResult.aiModelUsed || "Live LLM API";
+    }
+  } catch (err) {
+    console.warn("⚠️ LLM API call failed, switching smoothly to In-House Engine:", err.message);
+  }
+
+  // 3. Fallback to Local Engine if LLM not configured
+  if (!sentimentData) {
+    sentimentData = analyzeSentimentAndEmotion(userMessage);
+    entityData = parseEntitiesAndIntent(userMessage, orderHint);
+    scoreData = calculateRecoveryScore(sentimentData, entityData, customer, userMessage);
+    responseData = generateEmpatheticResponse(customer, sentimentData, entityData, scoreData, userMessage);
+  }
+
+  // 4. Record feedback item in SQLite Database and Live Store
   const newFeedback = {
     id: `FBK-${Date.now().toString().slice(-4)}`,
     customerId: customer.id,
     customerName: customer.name,
     orderId: entityData.orderId,
     product: entityData.product,
-    category: entityData.issueCategory,
+    category: entityData.issueCategory || entityData.category || "Delivery",
     feedback: userMessage,
     sentiment: sentimentData.sentiment,
     sentimentScore: sentimentData.sentimentScore,
     emotion: sentimentData.primaryEmotion,
     intensity: sentimentData.intensity,
-    severity: entityData.urgency === "High" ? "High" : entityData.urgency === "Medium" ? "Medium" : "Low",
-    issueType: entityData.issueType,
-    urgency: entityData.urgency,
+    severity: entityData.urgency === "High" ? "High" : "Low",
+    issueType: entityData.issueType || entityData.issueCategory,
+    urgency: entityData.urgency || "Medium",
     recoveryScore: scoreData.recoveryScore,
     riskLevel: scoreData.riskLevel,
     nextBestAction: scoreData.nextBestAction,
@@ -51,9 +87,8 @@ async function processCustomerMessage(userMessage, customerId = "CUST-9001", ord
     timestamp: new Date().toISOString()
   };
 
-  // Sync with synthetic in-memory store & SQLite Database
   addFeedback(newFeedback);
-  
+
   try {
     await dbOperations.saveFeedback(newFeedback);
     await dbOperations.saveChatLog({
@@ -67,7 +102,7 @@ async function processCustomerMessage(userMessage, customerId = "CUST-9001", ord
       timestamp: new Date().toISOString()
     });
   } catch (err) {
-    console.error("SQLite insert warning:", err.message);
+    console.error("SQLite write notice:", err.message);
   }
 
   return {
@@ -77,7 +112,7 @@ async function processCustomerMessage(userMessage, customerId = "CUST-9001", ord
     scoreData,
     responseData,
     feedbackRecord: newFeedback,
-    dbSaved: true
+    aiModel: modelName
   };
 }
 

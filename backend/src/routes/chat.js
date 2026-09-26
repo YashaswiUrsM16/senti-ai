@@ -44,12 +44,15 @@ const presetScenarios = [
 // POST /api/chat/message
 router.post("/message", async (req, res) => {
   try {
-    const { message, customerId, orderHint } = req.body;
+    const { message, customerId, orderHint, apiKey, provider } = req.body;
+    const headerKey = req.headers["x-api-key"] || req.headers["authorization"]?.replace("Bearer ", "");
+    const activeKey = apiKey || headerKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+
     if (!message || message.trim() === "") {
       return res.status(400).json({ error: "Message content is required" });
     }
 
-    const result = await processCustomerMessage(message, customerId, orderHint);
+    const result = await processCustomerMessage(message, customerId, orderHint, activeKey, provider);
     return res.json({
       success: true,
       timestamp: new Date().toISOString(),
